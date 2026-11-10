@@ -1,0 +1,1162 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Abdominal Exam VR - Realism Patient Engine</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- FontAwesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Three.js & OrbitControls -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    
+    <style>
+        :root {
+            --glass-dark: rgba(15, 23, 42, 0.84);
+            --glass-border: rgba(255, 255, 255, 0.18);
+            --glass-blur: blur(20px) saturate(180%);
+        }
+
+        body {
+            margin: 0;
+            overflow: hidden;
+            font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Inter", sans-serif;
+            user-select: none;
+            background-color: #f8fafc;
+            color: #0f172a;
+            cursor: default;
+        }
+
+        canvas {
+            display: block;
+            width: 100vw;
+            height: 100vh;
+        }
+
+        .vision-pill {
+            background: rgba(15, 23, 42, 0.85);
+            backdrop-filter: var(--glass-blur);
+            -webkit-backdrop-filter: var(--glass-blur);
+            border: 1px solid var(--glass-border);
+            box-shadow: 0 16px 36px rgba(0, 0, 0, 0.25), inset 0 1px 0 rgba(255, 255, 255, 0.2);
+            color: #ffffff;
+        }
+
+        .vision-card {
+            background: var(--glass-dark);
+            backdrop-filter: var(--glass-blur);
+            -webkit-backdrop-filter: var(--glass-blur);
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            box-shadow: 0 20px 45px rgba(0, 0, 0, 0.3);
+            color: #ffffff;
+        }
+
+        .segmented-item {
+            border-radius: 9999px;
+            transition: all 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+            cursor: pointer;
+        }
+
+        .segmented-item.active {
+            background: #ffffff;
+            color: #0f172a;
+            box-shadow: 0 4px 14px rgba(0, 0, 0, 0.2);
+        }
+
+        .btn-hover {
+            transition: all 0.2s ease;
+            cursor: pointer;
+        }
+
+        .btn-hover:hover {
+            filter: brightness(1.15);
+            transform: translateY(-1px);
+        }
+
+        .btn-hover:active {
+            transform: scale(0.97);
+        }
+
+        input[type=range] {
+            -webkit-appearance: none;
+            background: transparent;
+        }
+
+        input[type=range]:focus {
+            outline: none;
+        }
+
+        input[type=range]::-webkit-slider-runnable-track {
+            width: 100%;
+            height: 4px;
+            cursor: pointer;
+            background: rgba(255, 255, 255, 0.25);
+            border-radius: 2px;
+        }
+
+        input[type=range]::-webkit-slider-thumb {
+            height: 16px;
+            width: 16px;
+            border-radius: 50%;
+            background: #ffffff;
+            cursor: pointer;
+            -webkit-appearance: none;
+            margin-top: -6px;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.4);
+        }
+
+        ::-webkit-scrollbar { width: 4px; }
+        ::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.25); border-radius: 4px; }
+    </style>
+</head>
+<body class="flex flex-col h-screen overflow-hidden">
+
+    <!-- 3D Canvas -->
+    <div id="canvas-container" class="absolute inset-0 w-full h-full z-0"></div>
+
+    <!-- POCUS Floating Ultrasound Viewport -->
+    <div id="pocus-viewport" class="hidden absolute top-20 right-8 z-30 w-72 vision-card p-3.5 rounded-2xl border border-cyan-500/40 shadow-2xl">
+        <div class="flex items-center justify-between border-b border-white/10 pb-2 mb-2">
+            <span class="text-[11px] font-bold text-cyan-400 flex items-center gap-1.5"><i class="fa-solid fa-wave-square"></i> POCUS Ultrasound Probe</span>
+            <span class="text-[9px] bg-cyan-500/20 text-cyan-300 px-1.5 py-0.5 rounded font-mono">B-Mode Live</span>
+        </div>
+        <canvas id="pocus-canvas" width="260" height="160" class="w-full h-32 bg-black rounded-xl border border-slate-800 shadow-inner"></canvas>
+        <p id="pocus-finding" class="text-[10px] text-slate-300 mt-2 italic text-center">Move mouse over abdomen to sweep probe...</p>
+    </div>
+
+    <!-- Top Floating Header Bar -->
+    <header class="relative z-10 flex items-center justify-between px-8 py-4 pointer-events-none">
+        <div class="pointer-events-auto vision-pill px-5 py-2.5 rounded-full flex items-center gap-3">
+            <div class="w-8 h-8 rounded-full bg-blue-500/20 border border-blue-400/40 flex items-center justify-center text-blue-400">
+                <i class="fa-solid fa-user-doctor text-sm"></i>
+            </div>
+            <div>
+                <h1 class="text-xs font-semibold tracking-wide text-white">AbdoExam VR Studio</h1>
+                <p class="text-[10px] text-emerald-400 font-medium">Realistic Asian Male Patient Engine</p>
+            </div>
+        </div>
+
+        <!-- Tool Mode Selector Tabs -->
+        <div class="pointer-events-auto vision-pill p-1.5 rounded-full flex items-center gap-1">
+            <button id="tool-history" onclick="setToolMode('history')" class="segmented-item active px-3.5 py-1.5 text-xs font-semibold flex items-center gap-1.5"><i class="fa-solid fa-comments"></i> Consult</button>
+            <button id="tool-inspect" onclick="setToolMode('inspect')" class="segmented-item px-3.5 py-1.5 text-xs font-semibold text-slate-300 hover:text-white flex items-center gap-1.5"><i class="fa-solid fa-eye"></i> Orbit/Inspect</button>
+            <button id="tool-auscultate" onclick="setToolMode('auscultate')" class="segmented-item px-3.5 py-1.5 text-xs font-semibold text-slate-300 hover:text-white flex items-center gap-1.5"><i class="fa-solid fa-stethoscope"></i> Auscultate</button>
+            <button id="tool-palpate" onclick="setToolMode('palpate')" class="segmented-item px-3.5 py-1.5 text-xs font-semibold text-slate-300 hover:text-white flex items-center gap-1.5"><i class="fa-solid fa-hand-dots"></i> Palpate</button>
+            <button id="tool-percuss" onclick="setToolMode('percuss')" class="segmented-item px-3.5 py-1.5 text-xs font-semibold text-slate-300 hover:text-white flex items-center gap-1.5"><i class="fa-solid fa-drum"></i> Percuss</button>
+            <button id="tool-pocus" onclick="setToolMode('pocus')" class="segmented-item px-3.5 py-1.5 text-xs font-semibold text-cyan-300 hover:text-white flex items-center gap-1.5"><i class="fa-solid fa-wave-square"></i> POCUS</button>
+        </div>
+
+        <!-- Action Controls -->
+        <div class="pointer-events-auto flex items-center gap-2">
+            <button onclick="recenterCamera()" class="vision-pill btn-hover px-4 py-2 rounded-full text-xs font-semibold text-slate-200 border border-white/20">
+                <i class="fa-solid fa-arrows-to-eye text-blue-400 mr-1.5"></i> Center Camera
+            </button>
+            <button onclick="toggleScorecard()" class="vision-pill btn-hover px-4 py-2 rounded-full text-xs font-semibold text-amber-300 border border-amber-500/30">
+                <i class="fa-solid fa-clipboard-check mr-1.5"></i> OSCE Scorecard
+            </button>
+            <button onclick="toggleSpatialVR()" class="vision-pill btn-hover px-4 py-2 rounded-full text-xs font-semibold text-white border border-emerald-500/30">
+                <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse mr-1.5 inline-block"></span> Pass-through VR
+            </button>
+        </div>
+    </header>
+
+    <!-- Case Presets & Demographics Control Bar -->
+    <div class="relative z-10 flex justify-center mt-1 pointer-events-none">
+        <div class="pointer-events-auto vision-pill px-5 py-2 rounded-full flex items-center gap-3">
+            <span class="text-[11px] text-slate-400 font-medium uppercase tracking-wider">Clinical Cases:</span>
+            <button onclick="applyPreset('normal')" class="btn-hover px-3 py-1 rounded-full text-xs font-medium text-slate-200 bg-white/5 hover:bg-white/10">Normal</button>
+            <button onclick="applyPreset('obstruction')" class="btn-hover px-3 py-1 rounded-full text-xs font-medium text-amber-300 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/20">Obstruction</button>
+            <button onclick="applyPreset('peritonitis')" class="btn-hover px-3 py-1 rounded-full text-xs font-medium text-rose-400 bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/20">Peritonitis</button>
+            <button onclick="applyPreset('cirrhosis')" class="btn-hover px-3 py-1 rounded-full text-xs font-medium text-cyan-300 bg-cyan-500/10 hover:bg-cyan-500/20 border border-cyan-500/20">Cirrhosis</button>
+            <button onclick="applyPreset('appendicitis')" class="btn-hover px-3 py-1 rounded-full text-xs font-medium text-purple-300 bg-purple-500/10 hover:bg-purple-500/20 border border-purple-500/20">Appendicitis</button>
+            <span class="text-white/20">|</span>
+            <!-- Demographic Sliders -->
+            <label class="text-[10px] text-slate-300 flex items-center gap-1.5 font-medium">BMI:
+                <input type="range" id="slider-bmi" min="18" max="36" value="23" class="w-16" oninput="updateDemographics()">
+            </label>
+            <label class="text-[10px] text-slate-300 flex items-center gap-1.5 font-medium">Skin Tone:
+                <input type="range" id="slider-fitzpatrick" min="1" max="6" value="3" class="w-16" oninput="updateDemographics()">
+            </label>
+        </div>
+    </div>
+
+    <!-- Main Workspace Layout -->
+    <main class="relative z-10 flex-1 flex justify-between p-6 pointer-events-none overflow-hidden">
+        
+        <!-- Left Panel: Consultation & Special Signs -->
+        <div id="panel-consult" class="w-96 vision-card rounded-3xl p-5 flex flex-col justify-between pointer-events-auto overflow-y-auto max-h-[calc(100vh-170px)] space-y-4">
+            <div class="space-y-3">
+                <div class="flex items-center justify-between border-b border-white/10 pb-2">
+                    <h2 class="text-xs font-bold uppercase tracking-wider text-slate-300 flex items-center gap-2"><i class="fa-solid fa-hospital-user text-blue-400"></i> Clinical Consultation</h2>
+                    <span id="voice-indicator" class="text-[10px] bg-blue-500/20 text-blue-300 px-2 py-0.5 rounded-full border border-blue-500/30 font-medium">TTS Voice Active</span>
+                </div>
+
+                <div class="p-3.5 rounded-2xl bg-white/5 border border-white/10 space-y-1">
+                    <span class="text-[10px] text-slate-400 font-semibold uppercase tracking-wider">Patient (Ken - 26yo Asian Male):</span>
+                    <p id="patient-dialogue-text" class="text-xs text-slate-200 italic leading-relaxed">"Hello doctor. I'm lying down on the exam bed. Please ask me about my symptoms."</p>
+                </div>
+
+                <span class="text-[11px] font-semibold text-slate-400 uppercase tracking-wider block">History Taking Questions:</span>
+                <div class="space-y-1.5">
+                    <button onclick="askPatient('chief_complaint')" class="btn-hover w-full text-left p-2.5 rounded-xl bg-white/5 hover:bg-white/10 text-xs text-slate-200 flex items-center justify-between"><span>1. "How are you feeling today?"</span><i class="fa-solid fa-circle-play text-blue-400 text-xs"></i></button>
+                    <button onclick="askPatient('location')" class="btn-hover w-full text-left p-2.5 rounded-xl bg-white/5 hover:bg-white/10 text-xs text-slate-200 flex items-center justify-between"><span>2. "Where exactly is the pain located?"</span><i class="fa-solid fa-circle-play text-blue-400 text-xs"></i></button>
+                    <button onclick="askPatient('character')" class="btn-hover w-full text-left p-2.5 rounded-xl bg-white/5 hover:bg-white/10 text-xs text-slate-200 flex items-center justify-between"><span>3. "How would you describe the pain?"</span><i class="fa-solid fa-circle-play text-blue-400 text-xs"></i></button>
+                    <button onclick="askPatient('associated')" class="btn-hover w-full text-left p-2.5 rounded-xl bg-white/5 hover:bg-white/10 text-xs text-slate-200 flex items-center justify-between"><span>4. "Any nausea, vomiting, or fever?"</span><i class="fa-solid fa-circle-play text-blue-400 text-xs"></i></button>
+                </div>
+
+                <!-- Special Clinical Maneuvers Suite -->
+                <span class="text-[11px] font-semibold text-purple-400 uppercase tracking-wider block pt-2 border-t border-white/10">Special Exam Maneuvers:</span>
+                <div class="grid grid-cols-2 gap-2 text-xs">
+                    <button onclick="performSpecialSign('murphy')" class="btn-hover p-2.5 rounded-xl bg-purple-500/20 border border-purple-500/40 text-purple-200 text-left font-medium">Murphy's Sign</button>
+                    <button onclick="performSpecialSign('rovsing')" class="btn-hover p-2.5 rounded-xl bg-purple-500/20 border border-purple-500/40 text-purple-200 text-left font-medium">Rovsing's Sign</button>
+                    <button onclick="performSpecialSign('carnett')" class="btn-hover p-2.5 rounded-xl bg-purple-500/20 border border-purple-500/40 text-purple-200 text-left font-medium">Carnett's Test</button>
+                    <button onclick="performSpecialSign('shifting')" class="btn-hover p-2.5 rounded-xl bg-cyan-500/20 border border-cyan-500/40 text-cyan-200 text-left font-medium">Shifting Dullness</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Left Morph Panel (Inspect Mode) -->
+        <div id="panel-morphs" class="hidden w-80 vision-card rounded-3xl p-5 flex flex-col space-y-4 pointer-events-auto overflow-y-auto max-h-[calc(100vh-170px)]">
+            <div class="flex items-center justify-between border-b border-white/10 pb-2">
+                <h2 class="text-xs font-bold uppercase tracking-wider text-slate-300 flex items-center gap-2"><i class="fa-solid fa-sliders text-blue-400"></i> Anatomy & Organ Layers</h2>
+            </div>
+            
+            <!-- X-Ray Sub-epidermal Organ Layer Toggle -->
+            <div class="p-3 rounded-2xl bg-white/5 border border-white/10 flex items-center justify-between">
+                <div>
+                    <span class="text-xs font-semibold text-slate-200 block">X-Ray Organ Layer</span>
+                    <span class="text-[10px] text-slate-400">Sub-epidermal 3D Organs</span>
+                </div>
+                <button id="btn-xray-toggle" onclick="toggleXRayLayer()" class="btn-hover px-3 py-1 rounded-full text-xs font-semibold border border-white/20 bg-white/5 text-slate-300">OFF</button>
+            </div>
+
+            <div class="space-y-4 pt-2 border-t border-white/10">
+                <div class="space-y-1.5">
+                    <div class="flex justify-between text-xs"><span>Distension / Swelling</span><span id="val-distension" class="text-blue-400 font-mono">0%</span></div>
+                    <input type="range" id="slider-distension" min="0" max="100" value="0" oninput="updateMorphs()">
+                </div>
+                <div class="space-y-1.5">
+                    <div class="flex justify-between text-xs"><span>Scaphoid (Sunken)</span><span id="val-scaphoid" class="text-blue-400 font-mono">0%</span></div>
+                    <input type="range" id="slider-scaphoid" min="0" max="100" value="0" oninput="updateMorphs()">
+                </div>
+            </div>
+        </div>
+
+        <!-- Right Panel: Patient Monitor & Vascular Engine -->
+        <div class="w-80 vision-card rounded-3xl p-5 flex flex-col justify-between pointer-events-auto max-h-[calc(100vh-170px)] space-y-3">
+            <div class="space-y-3">
+                <div class="flex items-center justify-between border-b border-white/10 pb-2">
+                    <h2 class="text-xs font-bold uppercase tracking-wider text-slate-300 flex items-center gap-2"><i class="fa-solid fa-heart-pulse text-emerald-400"></i> Patient Monitor</h2>
+                    <span id="status-badge" class="px-2.5 py-0.5 text-[10px] font-bold rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">NORMAL</span>
+                </div>
+
+                <!-- Palpation Depth Control -->
+                <div class="p-3 rounded-2xl bg-white/5 border border-white/10 space-y-1.5">
+                    <div class="flex justify-between text-xs">
+                        <span class="text-slate-300 font-medium">Palpation Depth:</span>
+                        <span id="val-palp-depth" class="text-blue-400 font-mono font-bold">Light (1 cm)</span>
+                    </div>
+                    <input type="range" id="slider-palp-depth" min="1" max="5" value="1" step="1" oninput="updatePalpationDepth()" class="w-full">
+                </div>
+
+                <!-- Vascular AAA Engine Controls -->
+                <div class="p-3 rounded-2xl bg-white/5 border border-white/10 flex items-center justify-between">
+                    <div>
+                        <span class="text-xs font-semibold text-rose-300 block">AAA Pulsatile Mass</span>
+                        <span class="text-[10px] text-slate-400">72 BPM Epigastric Pulse</span>
+                    </div>
+                    <button id="btn-aaa-toggle" onclick="toggleAAAEngine()" class="btn-hover px-3 py-1 rounded-full text-xs font-semibold border border-white/20 bg-white/5 text-slate-300">OFF</button>
+                </div>
+
+                <!-- FACS Pain Expression Monitor -->
+                <div class="p-3 rounded-2xl bg-white/5 border border-white/10 space-y-1.5 text-[10px]">
+                    <span class="text-slate-400 font-semibold uppercase block">FACS Facial Pain Expression:</span>
+                    <div class="grid grid-cols-2 gap-1.5 font-mono">
+                        <div>AU4 Brow Lower: <span id="facs-au4" class="text-emerald-400">0%</span></div>
+                        <div>AU6 Eye Squint: <span id="facs-au6" class="text-emerald-400">0%</span></div>
+                        <div>AU9 Nose Wrinkle: <span id="facs-au9" class="text-emerald-400">0%</span></div>
+                        <div>AU20 Mouth Gasp: <span id="facs-au20" class="text-emerald-400">0%</span></div>
+                    </div>
+                </div>
+
+                <!-- Grimace Bar -->
+                <div class="p-3 rounded-2xl bg-white/5 border border-white/10 space-y-1.5">
+                    <div class="flex justify-between text-xs">
+                        <span class="text-slate-400">Pain Level:</span>
+                        <span id="grimace-level" class="font-bold text-emerald-400">0% (Calm)</span>
+                    </div>
+                    <div class="w-full bg-white/10 rounded-full h-2 overflow-hidden">
+                        <div id="pain-bar" class="bg-emerald-400 h-full w-0 transition-all duration-300"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <!-- Locomotion Prompt Pill -->
+    <div id="locomotion-prompt" class="relative z-10 bottom-6 left-1/2 -translate-x-1/2 vision-pill px-6 py-2 rounded-full flex items-center gap-4 text-xs text-slate-300 w-fit pointer-events-auto">
+        <span><i class="fa-solid fa-mouse text-blue-400 mr-1.5"></i> Left-Click + Drag: Orbit Studio Camera</span>
+        <span class="text-white/20">|</span>
+        <span><i class="fa-solid fa-hand-pointer text-emerald-400 mr-1.5"></i> Click Abdomen: Examine / Palpate</span>
+        <span class="text-white/20">|</span>
+        <span><i class="fa-solid fa-magnifying-glass-plus text-purple-400 mr-1.5"></i> Scroll: Zoom</span>
+    </div>
+
+    <!-- OSCE Automated Scorecard Modal -->
+    <div id="osce-modal" class="hidden absolute inset-0 z-50 bg-black/70 backdrop-blur-md flex items-center justify-center p-6 pointer-events-auto">
+        <div class="w-full max-w-lg vision-card rounded-3xl p-6 border border-amber-500/40 space-y-4">
+            <div class="flex justify-between items-center border-b border-white/10 pb-3">
+                <h2 class="text-base font-bold text-amber-300 flex items-center gap-2"><i class="fa-solid fa-award"></i> OSCE Clinical Protocol Scorecard</h2>
+                <button onclick="toggleScorecard()" class="text-slate-400 hover:text-white"><i class="fa-solid fa-xmark text-lg"></i></button>
+            </div>
+            
+            <div id="osce-checklist" class="space-y-2 text-xs"></div>
+
+            <div class="pt-3 border-t border-white/10 flex justify-between items-center">
+                <span class="text-xs text-slate-400">Total Score:</span>
+                <span id="osce-score-val" class="text-xl font-mono font-bold text-emerald-400">0 / 100</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Spatial VR Overlay -->
+    <div id="vr-overlay" class="hidden absolute inset-0 z-50 bg-black/85 backdrop-blur-xl flex flex-col items-center justify-center pointer-events-auto">
+        <div class="text-center space-y-5 p-8 vision-card rounded-3xl border border-emerald-500/40 max-w-md">
+            <i class="fa-solid fa-vr-cardboard text-5xl text-emerald-400"></i>
+            <h2 class="text-xl font-bold text-white">Meta Quest Pass-through Active</h2>
+            <p class="text-xs text-slate-300 leading-relaxed">
+                Physical room-scale walk and Quest thumbstick locomotion active in spatial studio mode.
+            </p>
+            <button onclick="toggleSpatialVR()" class="vision-pill btn-hover px-6 py-2.5 bg-emerald-500/20 text-emerald-300 rounded-full text-xs font-semibold">
+                Exit Spatial VR Mode
+            </button>
+        </div>
+    </div>
+
+    <!-- ENGINE SCRIPT -->
+    <script>
+        let scene, camera, renderer, orbitControls;
+        let patientGroup, torsoMesh, torsoGeo, baseTorsoPositions;
+        let headMesh, hairMesh, eyebrowLeft, eyebrowRight, leftEyeMesh, rightEyeMesh, mouthMesh, briefsMesh, waistbandMesh;
+        let armLeft, armRight, legLeft, legRight;
+        let skinMaterial, briefsMaterial, waistbandMaterial, hairMaterial, diffuseTexture, skinNormalMap, fabricNormalMap;
+        let stethoscopeMesh, pocusProbeMesh, cursorMarker;
+        let organGroup;
+
+        // Web Audio Context
+        let audioCtx = null;
+
+        // Raycasting
+        const raycaster = new THREE.Raycaster();
+        const mouse = new THREE.Vector2();
+
+        // Clinical State
+        let currentCasePreset = 'normal';
+        let currentTool = 'history';
+        let voiceAudioEnabled = true;
+        let isBreathing = true;
+        let palpationDepth = 1;
+        let aaaActive = false;
+        let xrayActive = false;
+        let patientRolled = false;
+
+        const osceTracker = {
+            consent: false,
+            inspected: false,
+            auscultatedFirst: false,
+            percussed: false,
+            lightPalpation: false,
+            deepPalpation: false,
+            specialSigns: false
+        };
+
+        const patientScripts = {
+            normal: { chief_complaint: "I'm feeling fine, doctor. Just here for my clinical checkup.", location: "No pain anywhere in my stomach.", character: "No pain.", associated: "Appetite is good, normal digestion." },
+            obstruction: { chief_complaint: "My stomach is swollen and hurting in severe cramping waves!", location: "All across my abdominal area.", character: "Sharp cramping waves that come and go.", associated: "I've been vomiting bile and haven't passed gas." },
+            peritonitis: { chief_complaint: "Please don't touch me! Every movement or bump to the bed is painful!", location: "Everywhere in my abdomen.", character: "Constant burning, intense pain.", associated: "High fever, severe chills, feeling terrible." },
+            cirrhosis: { chief_complaint: "My belly feels tight, heavy, and swollen like a balloon.", location: "Heavy pressure across central belly and flanks.", character: "Dull, heavy pressure.", associated: "I get full quickly when eating." },
+            appendicitis: { chief_complaint: "Pain started around my navel and moved down to my lower right side.", location: "Lower right quadrant.", character: "Persistent, sharp ache.", associated: "Mild fever and nausea." }
+        };
+
+        window.onload = function() {
+            initScene();
+            initProceduralTextures();
+            createPatientModel();
+            createInternalOrgans();
+            createTools();
+            setupEventListeners();
+            recenterCamera();
+            animate();
+        };
+
+        function initScene() {
+            const container = document.getElementById('canvas-container');
+
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0xf8fafc); // High-Key Clinical Studio Background
+
+            camera = new THREE.PerspectiveCamera(36, window.innerWidth / window.innerHeight, 0.1, 100);
+
+            renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+            renderer.outputEncoding = THREE.sRGBEncoding;
+            renderer.toneMapping = THREE.ACESFilmicToneMapping;
+            renderer.toneMappingExposure = 1.05;
+            renderer.shadowMap.enabled = true;
+            renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+            container.appendChild(renderer.domElement);
+
+            orbitControls = new THREE.OrbitControls(camera, renderer.domElement);
+            orbitControls.enableDamping = true;
+            orbitControls.dampingFactor = 0.05;
+            orbitControls.maxPolarAngle = Math.PI / 2 - 0.02;
+            orbitControls.minDistance = 0.8;
+            orbitControls.maxDistance = 4.8;
+
+            // HIGH-KEY STUDIO LIGHTING ENVIRONMENT
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.75);
+            scene.add(ambientLight);
+
+            const keyExamLight = new THREE.SpotLight(0xfffaf0, 1.4);
+            keyExamLight.position.set(-2.0, 3.2, 1.8);
+            keyExamLight.angle = Math.PI / 3.2;
+            keyExamLight.penumbra = 0.5;
+            keyExamLight.castShadow = true;
+            keyExamLight.shadow.mapSize.width = 2048;
+            keyExamLight.shadow.mapSize.height = 2048;
+            keyExamLight.shadow.bias = -0.0001;
+            scene.add(keyExamLight);
+
+            const softFill = new THREE.DirectionalLight(0xe0f2fe, 0.45);
+            softFill.position.set(2.2, 2.5, -1.2);
+            scene.add(softFill);
+
+            const rimLight = new THREE.DirectionalLight(0xffffff, 0.35);
+            rimLight.position.set(0, 1.5, -3.0);
+            scene.add(rimLight);
+
+            // Studio Drop-Shadow Catching Ground Plane
+            const shadowPlaneGeo = new THREE.PlaneGeometry(12, 12);
+            const shadowPlaneMat = new THREE.ShadowMaterial({ opacity: 0.14 });
+            const shadowPlane = new THREE.Mesh(shadowPlaneGeo, shadowPlaneMat);
+            shadowPlane.rotation.x = -Math.PI / 2;
+            shadowPlane.position.y = -0.01;
+            shadowPlane.receiveShadow = true;
+            scene.add(shadowPlane);
+
+            // Clinical Examination Table & Pillow
+            const bedGroup = new THREE.Group();
+            
+            const frameGeo = new THREE.BoxGeometry(1.5, 0.32, 3.2);
+            const frameMat = new THREE.MeshStandardMaterial({ color: 0x334155, roughness: 0.4, metalness: 0.5 });
+            const frame = new THREE.Mesh(frameGeo, frameMat);
+            frame.position.set(0, -0.16, 0);
+            frame.castShadow = true;
+            bedGroup.add(frame);
+
+            const mattressGeo = new THREE.BoxGeometry(1.4, 0.16, 3.1);
+            const mattressMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.85 });
+            const mattress = new THREE.Mesh(mattressGeo, mattressMat);
+            mattress.position.set(0, 0.08, 0);
+            mattress.receiveShadow = true;
+            bedGroup.add(mattress);
+
+            const pillowGeo = new THREE.BoxGeometry(0.7, 0.12, 0.42);
+            pillowGeo.rotateX(0.08);
+            const pillowMat = new THREE.MeshStandardMaterial({ color: 0xf8fafc, roughness: 0.9 });
+            const pillow = new THREE.Mesh(pillowGeo, pillowMat);
+            pillow.position.set(0, 0.20, 1.22);
+            pillow.receiveShadow = true;
+            bedGroup.add(pillow);
+
+            scene.add(bedGroup);
+
+            // 3D Cursor Highlight Ring
+            const markerGeo = new THREE.RingGeometry(0.02, 0.038, 32);
+            const markerMat = new THREE.MeshBasicMaterial({ color: 0x0284c7, side: THREE.DoubleSide, transparent: true, opacity: 0.85 });
+            cursorMarker = new THREE.Mesh(markerGeo, markerMat);
+            cursorMarker.rotateX(-Math.PI / 2);
+            cursorMarker.visible = false;
+            scene.add(cursorMarker);
+        }
+
+        function recenterCamera() {
+            camera.position.set(0, 2.1, 2.4);
+            orbitControls.target.set(0, 0.25, 0.05);
+            orbitControls.update();
+        }
+
+        // PROCEDURAL ANATOMICAL HIGH-DETAIL SKIN & FABRIC TEXTURE GENERATOR
+        function initProceduralTextures() {
+            const canvas = document.createElement('canvas');
+            canvas.width = 2048; canvas.height = 2048;
+            const ctx = canvas.getContext('2d');
+
+            // Realistic Asian Male Skin Base Tone (Fitzpatrick Type III - Warm Golden Sand)
+            ctx.fillStyle = '#e5b699';
+            ctx.fillRect(0, 0, 2048, 2048);
+
+            // Pectoral Muscle Shade Gradients & Clavicle Shading
+            const gradPecs = ctx.createRadialGradient(1024, 700, 40, 1024, 700, 480);
+            gradPecs.addColorStop(0, 'rgba(230, 165, 138, 0.4)');
+            gradPecs.addColorStop(1, 'rgba(195, 125, 100, 0)');
+            ctx.fillStyle = gradPecs;
+            ctx.fillRect(0, 0, 2048, 2048);
+
+            // Areola & Nipples
+            ctx.fillStyle = 'rgba(175, 100, 90, 0.85)';
+            ctx.beginPath(); ctx.arc(710, 670, 22, 0, Math.PI * 2); ctx.fill();
+            ctx.fillStyle = 'rgba(140, 70, 60, 0.95)';
+            ctx.beginPath(); ctx.arc(710, 670, 7, 0, Math.PI * 2); ctx.fill();
+
+            ctx.fillStyle = 'rgba(175, 100, 90, 0.85)';
+            ctx.beginPath(); ctx.arc(1338, 670, 22, 0, Math.PI * 2); ctx.fill();
+            ctx.fillStyle = 'rgba(140, 70, 60, 0.95)';
+            ctx.beginPath(); ctx.arc(1338, 670, 7, 0, Math.PI * 2); ctx.fill();
+
+            // Umbilicus Depressed Shadow
+            ctx.fillStyle = 'rgba(115, 60, 50, 0.80)';
+            ctx.beginPath(); ctx.arc(1024, 1260, 15, 0, Math.PI * 2); ctx.fill();
+
+            // Lips
+            ctx.fillStyle = 'rgba(190, 95, 105, 0.85)';
+            ctx.fillRect(890, 1830, 268, 48);
+
+            // Fine Pore Noise Overlay
+            const imgData = ctx.getImageData(0, 0, 2048, 2048);
+            for (let i = 0; i < imgData.data.length; i += 4) {
+                const noise = (Math.random() - 0.5) * 8;
+                imgData.data[i] = Math.min(255, Math.max(0, imgData.data[i] + noise));
+                imgData.data[i+1] = Math.min(255, Math.max(0, imgData.data[i+1] + noise));
+                imgData.data[i+2] = Math.min(255, Math.max(0, imgData.data[i+2] + noise));
+            }
+            ctx.putImageData(imgData, 0, 0);
+
+            diffuseTexture = new THREE.CanvasTexture(canvas);
+            diffuseTexture.encoding = THREE.sRGBEncoding;
+
+            // Skin Normal Map Generator
+            const normCanvas = document.createElement('canvas');
+            normCanvas.width = 1024; normCanvas.height = 1024;
+            const nCtx = normCanvas.getContext('2d');
+            nCtx.fillStyle = 'rgb(128, 128, 255)';
+            nCtx.fillRect(0, 0, 1024, 1024);
+
+            const nData = nCtx.getImageData(0, 0, 1024, 1024);
+            for (let i = 0; i < nData.data.length; i += 4) {
+                nData.data[i] = 128 + Math.floor((Math.random() - 0.5) * 16);
+                nData.data[i+1] = 128 + Math.floor((Math.random() - 0.5) * 16);
+                nData.data[i+2] = 255;
+            }
+            nCtx.putImageData(nData, 0, 0);
+
+            skinNormalMap = new THREE.CanvasTexture(normCanvas);
+
+            // Boxer Briefs Fabric Normal Map (Micro Weave)
+            const fabCanvas = document.createElement('canvas');
+            fabCanvas.width = 512; fabCanvas.height = 512;
+            const fCtx = fabCanvas.getContext('2d');
+            fCtx.fillStyle = 'rgb(128, 128, 255)'; fCtx.fillRect(0, 0, 512, 512);
+            for (let y = 0; y < 512; y += 4) {
+                fCtx.fillStyle = 'rgb(145, 128, 255)';
+                fCtx.fillRect(0, y, 512, 2);
+            }
+            fabricNormalMap = new THREE.CanvasTexture(fabCanvas);
+            fabricNormalMap.wrapS = THREE.RepeatWrapping;
+            fabricNormalMap.wrapT = THREE.RepeatWrapping;
+            fabricNormalMap.repeat.set(6, 6);
+        }
+
+        // SCULPTS REALISTIC ASIAN MALE PATIENT MODEL (Matching Image 4)
+        function createPatientModel() {
+            patientGroup = new THREE.Group();
+            patientGroup.position.set(0, 0.16, 0);
+
+            // Subsurface Scattering Physical Skin Material
+            skinMaterial = new THREE.MeshPhysicalMaterial({
+                map: diffuseTexture,
+                normalMap: skinNormalMap,
+                normalScale: new THREE.Vector2(0.28, 0.28),
+                color: 0xe5b699,
+                roughness: 0.46,
+                metalness: 0.02,
+                transmission: 0.03, // Internal SSS light scatter
+                clearcoat: 0.08,
+                clearcoatRoughness: 0.35
+            });
+
+            // Grey Boxer Briefs Material (Matching Image 4)
+            briefsMaterial = new THREE.MeshStandardMaterial({
+                color: 0x5b6577, // Neutral medium grey matching image 4
+                normalMap: fabricNormalMap,
+                normalScale: new THREE.Vector2(0.35, 0.35),
+                roughness: 0.75,
+                metalness: 0.05
+            });
+
+            waistbandMaterial = new THREE.MeshStandardMaterial({
+                color: 0x374151, // Dark charcoal waistband matching image 4
+                roughness: 0.65
+            });
+
+            hairMaterial = new THREE.MeshStandardMaterial({
+                color: 0x1a1816, // Dark black/brown Asian hair matching image 4
+                roughness: 0.8
+            });
+
+            // 1. ORGANIC SCULPTED ASIAN MALE TORSO & ABDOMEN (Smooth Muscle Geometry)
+            torsoGeo = new THREE.CylinderGeometry(0.36, 0.32, 1.15, 64, 64);
+            torsoGeo.rotateX(Math.PI / 2);
+            const posAttr = torsoGeo.attributes.position;
+            
+            for (let i = 0; i < posAttr.count; i++) {
+                let x = posAttr.getX(i);
+                let y = posAttr.getY(i);
+                let z = posAttr.getZ(i);
+
+                // Supine Flattening & Pectoral Muscle Contour (z > 0.15)
+                if (z > 0.15 && y > 0) {
+                    y += Math.sin((z - 0.15) * Math.PI * 1.5) * 0.048 * (1.0 - Math.abs(x) * 1.3);
+                    if (z > 0.45) y += 0.018 * Math.cos(x * 6); // Clavicles
+                }
+
+                // Abdominal Wall & Navel (z between -0.35 and 0.15)
+                if (z >= -0.35 && z <= 0.15 && y > 0) {
+                    const normDist = 1.0 - Math.sqrt(x * x * 4.0 + z * z * 4.0);
+                    if (normDist > 0) {
+                        y += Math.sin(normDist * Math.PI * 0.5) * 0.040;
+                        if (Math.abs(z + 0.1) < 0.06 && Math.abs(x) < 0.06) {
+                            y -= 0.030; // Navel depression
+                        }
+                    }
+                }
+
+                // Waist Taper
+                if (z < 0.1 && z > -0.4) {
+                    x *= 0.92;
+                }
+
+                posAttr.setXYZ(i, x, y, z);
+            }
+            torsoGeo.computeVertexNormals();
+
+            baseTorsoPositions = new Float32Array(posAttr.array.length);
+            baseTorsoPositions.set(posAttr.array);
+
+            torsoMesh = new THREE.Mesh(torsoGeo, skinMaterial);
+            torsoMesh.position.set(0, 0.19, 0.15);
+            torsoMesh.castShadow = true;
+            torsoMesh.receiveShadow = true;
+            patientGroup.add(torsoMesh);
+
+            // 2. REALISTIC FACIAL RIG & ASIAN QUIFF HAIRSTYLE (Matching Image 4)
+            const headGroup = new THREE.Group();
+            headGroup.position.set(0, 0.27, 0.95);
+
+            // Neck
+            const neckGeo = new THREE.CylinderGeometry(0.11, 0.14, 0.22, 32);
+            neckGeo.rotateX(0.2);
+            const neckMesh = new THREE.Mesh(neckGeo, skinMaterial);
+            neckMesh.position.set(0, -0.06, -0.08);
+            headGroup.add(neckMesh);
+
+            // Head Skull & Facial Features Sculpt
+            const headGeo = new THREE.SphereGeometry(0.18, 64, 64);
+            const hPos = headGeo.attributes.position;
+            for (let i = 0; i < hPos.count; i++) {
+                let x = hPos.getX(i), y = hPos.getY(i), z = hPos.getZ(i);
+                if (y > -0.05 && z > 0) {
+                    if (y > 0.02 && y < 0.09 && Math.abs(x) > 0.04 && Math.abs(x) < 0.11) z -= 0.020; // Eye sockets
+                    if (Math.abs(x) < 0.03 && y > -0.04 && y < 0.08) z += 0.038 * (1.0 - Math.abs(x) / 0.03); // Asian Nose bridge
+                    if (Math.abs(x) > 0.08 && y > -0.08 && y < 0.05) x *= 1.04; // Gentle Cheekbones
+                    if (y < -0.10 && Math.abs(x) < 0.05) { z += 0.026; y -= 0.01; } // Chin
+                }
+                hPos.setXYZ(i, x, y, z);
+            }
+            headGeo.computeVertexNormals();
+
+            headMesh = new THREE.Mesh(headGeo, skinMaterial);
+            headMesh.castShadow = true;
+            headGroup.add(headMesh);
+
+            // Quiff Hairstyle Geometry (Volume on top, side taper matching Image 4)
+            const hairGeo = new THREE.SphereGeometry(0.19, 32, 32);
+            hairGeo.scale(1.03, 1.06, 1.03);
+            const hairPos = hairGeo.attributes.position;
+            for (let i = 0; i < hairPos.count; i++) {
+                let x = hairPos.getX(i), y = hairPos.getY(i), z = hairPos.getZ(i);
+                if (y > 0.04 && z > -0.05) {
+                    y += 0.035 + Math.sin(x * 16.0) * 0.008; // Top Quiff Volume
+                    z += 0.015;
+                }
+                hairPos.setXYZ(i, x, y, z);
+            }
+            hairGeo.computeVertexNormals();
+
+            hairMesh = new THREE.Mesh(hairGeo, hairMaterial);
+            hairMesh.position.set(0, 0.02, -0.01);
+            headGroup.add(hairMesh);
+
+            // Realistic Eyes (Iris + Glass Cornea)
+            const createEye = () => {
+                const grp = new THREE.Group();
+                const iris = new THREE.Mesh(new THREE.SphereGeometry(0.022, 32, 32), new THREE.MeshStandardMaterial({ color: 0x22130c, roughness: 0.2 }));
+                const cornea = new THREE.Mesh(new THREE.SphereGeometry(0.024, 32, 32), new THREE.MeshPhysicalMaterial({ transmission: 0.95, roughness: 0.02, ior: 1.33 }));
+                grp.add(iris, cornea);
+                return grp;
+            };
+
+            leftEyeMesh = createEye(); leftEyeMesh.position.set(-0.065, 0.05, 0.145);
+            rightEyeMesh = createEye(); rightEyeMesh.position.set(0.065, 0.05, 0.145);
+            headGroup.add(leftEyeMesh, rightEyeMesh);
+
+            // Eyebrows
+            const browGeo = new THREE.BoxGeometry(0.055, 0.008, 0.012);
+            eyebrowLeft = new THREE.Mesh(browGeo, hairMaterial);
+            eyebrowLeft.position.set(-0.065, 0.09, 0.155);
+            eyebrowRight = eyebrowLeft.clone();
+            eyebrowRight.position.x = 0.065;
+            headGroup.add(eyebrowLeft, eyebrowRight);
+
+            // Lips
+            const mouthGeo = new THREE.TorusGeometry(0.032, 0.007, 12, 32, Math.PI);
+            mouthMesh = new THREE.Mesh(mouthGeo, new THREE.MeshStandardMaterial({ color: 0xaa5460, roughness: 0.4 }));
+            mouthMesh.position.set(0, -0.05, 0.155);
+            mouthMesh.rotation.x = Math.PI;
+            headGroup.add(mouthMesh);
+
+            patientGroup.add(headGroup);
+
+            // 3. GREY BOXER BRIEFS MESH WITH CHARCOAL WAISTBAND (Matching Image 4)
+            const briefsGeo = new THREE.CylinderGeometry(0.34, 0.31, 0.36, 32);
+            briefsGeo.rotateX(Math.PI / 2);
+            briefsMesh = new THREE.Mesh(briefsGeo, briefsMaterial);
+            briefsMesh.position.set(0, 0.15, -0.45);
+            briefsMesh.castShadow = true;
+            patientGroup.add(briefsMesh);
+
+            // Dark Charcoal Waistband Ring
+            const waistbandGeo = new THREE.TorusGeometry(0.342, 0.014, 16, 64);
+            waistbandGeo.rotateX(Math.PI / 2);
+            waistbandMesh = new THREE.Mesh(waistbandGeo, waistbandMaterial);
+            waistbandMesh.position.set(0, 0.16, -0.27);
+            patientGroup.add(waistbandMesh);
+
+            // 4. ANATOMICAL LIMBS (Smooth Organic Thighs, Calves, Feet, Arms, Hands)
+            // Left Arm
+            armLeft = new THREE.Group(); armLeft.position.set(-0.41, 0.16, 0.25);
+            const bicepGeo = new THREE.CylinderGeometry(0.070, 0.060, 0.55, 24);
+            bicepGeo.rotateX(Math.PI / 2);
+            const armMesh = new THREE.Mesh(bicepGeo, skinMaterial);
+            armMesh.position.set(0, 0, -0.22); armMesh.castShadow = true;
+            armLeft.add(armMesh);
+            patientGroup.add(armLeft);
+
+            // Right Arm
+            armRight = new THREE.Group(); armRight.position.set(0.41, 0.16, 0.25);
+            armRight.add(armMesh.clone());
+            patientGroup.add(armRight);
+
+            // Left Leg
+            legLeft = new THREE.Group(); legLeft.position.set(-0.18, 0.14, -0.65);
+            const thighGeo = new THREE.CylinderGeometry(0.112, 0.086, 0.85, 24);
+            thighGeo.rotateX(Math.PI / 2);
+            const legMesh = new THREE.Mesh(thighGeo, skinMaterial);
+            legMesh.position.set(0, 0, -0.4); legMesh.castShadow = true;
+            legLeft.add(legMesh);
+            patientGroup.add(legLeft);
+
+            // Right Leg
+            legRight = new THREE.Group(); legRight.position.set(0.18, 0.14, -0.65);
+            legRight.add(legMesh.clone());
+            patientGroup.add(legRight);
+
+            scene.add(patientGroup);
+        }
+
+        // X-RAY SUB-EPIDERMAL INTERNAL ORGANS
+        function createInternalOrgans() {
+            organGroup = new THREE.Group();
+            organGroup.position.set(0, 0.21, 0.15);
+
+            // Liver (RUQ)
+            const liver = new THREE.Mesh(new THREE.SphereGeometry(0.12, 16, 16), new THREE.MeshStandardMaterial({ color: 0x881337, transparent: true, opacity: 0.85 }));
+            liver.scale.set(1.4, 0.8, 1.0); liver.position.set(-0.14, 0.02, 0.12);
+            organGroup.add(liver);
+
+            // Gallbladder
+            const gb = new THREE.Mesh(new THREE.SphereGeometry(0.035, 16, 16), new THREE.MeshStandardMaterial({ color: 0x15803d, transparent: true, opacity: 0.9 }));
+            gb.position.set(-0.12, -0.03, 0.16);
+            organGroup.add(gb);
+
+            // Stomach (LUQ)
+            const stomach = new THREE.Mesh(new THREE.SphereGeometry(0.11, 16, 16), new THREE.MeshStandardMaterial({ color: 0xb91c1c, transparent: true, opacity: 0.85 }));
+            stomach.scale.set(1.2, 0.9, 0.8); stomach.position.set(0.13, 0.02, 0.08);
+            organGroup.add(stomach);
+
+            // Abdominal Aorta
+            const aorta = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.018, 0.55, 16), new THREE.MeshStandardMaterial({ color: 0xd97706, transparent: true, opacity: 0.9 }));
+            aorta.position.set(0, 0.01, -0.05);
+            organGroup.add(aorta);
+
+            // Bowel Loops
+            const bowel = new THREE.Mesh(new THREE.TorusGeometry(0.12, 0.04, 16, 32), new THREE.MeshStandardMaterial({ color: 0xd97706, transparent: true, opacity: 0.8 }));
+            bowel.rotation.x = Math.PI / 2; bowel.position.set(0, 0.01, -0.12);
+            organGroup.add(bowel);
+
+            organGroup.visible = false;
+            patientGroup.add(organGroup);
+        }
+
+        function createTools() {
+            stethoscopeMesh = new THREE.Mesh(new THREE.CylinderGeometry(0.055, 0.055, 0.02, 32), new THREE.MeshStandardMaterial({ color: 0xe2e8f0, metalness: 0.95 }));
+            stethoscopeMesh.geometry.rotateX(Math.PI / 2);
+            stethoscopeMesh.visible = false;
+            scene.add(stethoscopeMesh);
+
+            pocusProbeMesh = new THREE.Mesh(new THREE.BoxGeometry(0.045, 0.095, 0.035), new THREE.MeshStandardMaterial({ color: 0x0284c7, roughness: 0.2 }));
+            pocusProbeMesh.visible = false;
+            scene.add(pocusProbeMesh);
+        }
+
+        // WEB AUDIO SYNTHESIZER (Bowel & Percussion Sounds)
+        function initAudioEngine() {
+            if (!audioCtx) {
+                audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            }
+        }
+
+        function playBowelSound() {
+            initAudioEngine();
+            if (!audioCtx) return;
+
+            const now = audioCtx.currentTime;
+            if (currentCasePreset === 'peritonitis') return; // Absent bowel sounds
+
+            const isHyper = currentCasePreset === 'obstruction';
+            const count = isHyper ? 6 : 3;
+
+            for (let i = 0; i < count; i++) {
+                const osc = audioCtx.createOscillator();
+                const gain = audioCtx.createGain();
+                const filter = audioCtx.createBiquadFilter();
+
+                osc.type = 'sine';
+                const freq = (isHyper ? 450 : 220) + Math.random() * 300;
+                osc.frequency.setValueAtTime(freq, now + i * 0.15);
+                osc.frequency.exponentialRampToValueAtTime(freq * 0.5, now + i * 0.15 + 0.12);
+
+                filter.type = 'bandpass';
+                filter.frequency.value = 600;
+
+                gain.gain.setValueAtTime(0.001, now + i * 0.15);
+                gain.gain.linearRampToValueAtTime(0.15, now + i * 0.15 + 0.03);
+                gain.gain.exponentialRampToValueAtTime(0.001, now + i * 0.15 + 0.12);
+
+                osc.connect(filter);
+                filter.connect(gain);
+                gain.connect(audioCtx.destination);
+
+                osc.start(now + i * 0.15);
+                osc.stop(now + i * 0.15 + 0.13);
+            }
+        }
+
+        function playPercussionSound(isTympanic) {
+            initAudioEngine();
+            if (!audioCtx) return;
+
+            const now = audioCtx.currentTime;
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+
+            osc.type = 'sine';
+            const startFreq = isTympanic ? 280 : 130;
+            osc.frequency.setValueAtTime(startFreq, now);
+            osc.frequency.exponentialRampToValueAtTime(40, now + 0.12);
+
+            gain.gain.setValueAtTime(0.3, now);
+            gain.gain.exponentialRampToValueAtTime(0.001, now + 0.12);
+
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+
+            osc.start(now);
+            osc.stop(now + 0.13);
+        }
+
+        function toggleXRayLayer() {
+            xrayActive = !xrayActive;
+            organGroup.visible = xrayActive;
+            skinMaterial.transparent = xrayActive;
+            skinMaterial.opacity = xrayActive ? 0.45 : 1.0;
+            document.getElementById('btn-xray-toggle').innerText = xrayActive ? 'ON' : 'OFF';
+        }
+
+        function updatePalpationDepth() {
+            palpationDepth = parseInt(document.getElementById('slider-palp-depth').value);
+            const labels = ['', 'Light (1 cm)', 'Moderate (2 cm)', 'Deep (3 cm)', 'Deep (4 cm)', 'Deep Mass (5 cm)'];
+            document.getElementById('val-palp-depth').innerText = labels[palpationDepth];
+        }
+
+        function toggleAAAEngine() {
+            aaaActive = !aaaActive;
+            document.getElementById('btn-aaa-toggle').innerText = aaaActive ? 'ON' : 'OFF';
+        }
+
+        function performSpecialSign(sign) {
+            osceTracker.specialSigns = true;
+            if (sign === 'murphy') {
+                askPatient('chief_complaint');
+                applyFACSAndPhysiology(0.95);
+                document.getElementById('patient-dialogue-text').innerText = `"Agh! Inspiratory Catch! Severe sharp pain under my right ribs when inhaling!"`;
+            } else if (sign === 'rovsing') {
+                applyFACSAndPhysiology(0.85);
+                document.getElementById('patient-dialogue-text').innerText = `"Ow! Pressing my lower left side causes sharp pain on my lower RIGHT side!"`;
+            } else if (sign === 'carnett') {
+                applyFACSAndPhysiology(0.70);
+                document.getElementById('patient-dialogue-text').innerText = `"Pain remains severe even when flexing my abdominal muscles (Positive Carnett's wall pain)."`;
+            } else if (sign === 'shifting') {
+                patientRolled = !patientRolled;
+                patientGroup.rotation.z = patientRolled ? 0.45 : 0;
+                document.getElementById('patient-dialogue-text').innerText = patientRolled ? `"Patient rolled 45 degrees onto left flank. Fluid dullness shifts to dependent flank."` : `"Patient returned to flat supine position."`;
+            }
+        }
+
+        function updateDemographics() {
+            const bmi = parseFloat(document.getElementById('slider-bmi').value);
+            const fitz = parseInt(document.getElementById('slider-fitzpatrick').value);
+            const fatScale = (bmi - 23) * 0.015;
+            torsoMesh.scale.set(1.0 + fatScale, 1.0 + fatScale * 0.8, 1.0);
+            
+            const tones = [0xe8beaa, 0xdfab92, 0xe5b699, 0x9e6240, 0x6e3d23, 0x3d1f10];
+            skinMaterial.color.setHex(tones[fitz - 1]);
+        }
+
+        function toggleScorecard() {
+            const modal = document.getElementById('osce-modal');
+            modal.classList.toggle('hidden');
+
+            if (!modal.classList.contains('hidden')) {
+                let score = 0, html = '';
+                const items = [
+                    { key: 'consent', label: '1. Patient Consent & History Taking', pts: 15 },
+                    { key: 'inspected', label: '2. Systematic Abdominal Inspection', pts: 15 },
+                    { key: 'auscultatedFirst', label: '3. Auscultation Before Palpation', pts: 20 },
+                    { key: 'percussed', label: '4. Percussion Across 4 Quadrants', pts: 15 },
+                    { key: 'lightPalpation', label: '5. Light Palpation (1-2 cm)', pts: 15 },
+                    { key: 'deepPalpation', label: '6. Deep Palpation for Organ Margins', pts: 10 },
+                    { key: 'specialSigns', label: '7. Eponymous Clinical Signs', pts: 10 }
+                ];
+
+                items.forEach(item => {
+                    const done = osceTracker[item.key];
+                    if (done) score += item.pts;
+                    html += `<div class="flex justify-between items-center p-2.5 rounded-xl bg-white/5 border border-white/5">
+                        <span class="${done ? 'text-emerald-400 font-semibold' : 'text-slate-400'}">${item.label}</span>
+                        <span class="${done ? 'text-emerald-400 font-bold' : 'text-slate-500'}">${done ? '+' + item.pts : '0'} pts</span>
+                    </div>`;
+                });
+
+                document.getElementById('osce-checklist').innerHTML = html;
+                document.getElementById('osce-score-val').innerText = `${score} / 100`;
+            }
+        }
+
+        function renderPOCUSScan() {
+            const canvas = document.getElementById('pocus-canvas');
+            const ctx = canvas.getContext('2d');
+            ctx.fillStyle = '#000000'; ctx.fillRect(0, 0, 260, 160);
+
+            // Sector Scan Fan Overlay
+            ctx.fillStyle = '#090d16';
+            ctx.beginPath(); ctx.moveTo(130, 8);
+            ctx.arc(130, 8, 145, Math.PI * 0.25, Math.PI * 0.75); ctx.fill();
+
+            // Speckle Noise
+            for (let i = 0; i < 450; i++) {
+                ctx.fillStyle = `rgba(255,255,255,${Math.random() * 0.22})`;
+                ctx.fillRect(Math.random() * 260, Math.random() * 160, 2, 2);
+            }
+
+            if (currentCasePreset === 'obstruction') {
+                ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 2; ctx.strokeRect(90, 55, 80, 45);
+                document.getElementById('pocus-finding').innerText = "POCUS: Dilated fluid-filled bowel loops with keyboard sign.";
+            } else if (currentCasePreset === 'cirrhosis') {
+                ctx.fillStyle = 'rgba(255,255,255,0.35)'; ctx.beginPath(); ctx.arc(130, 90, 35, 0, Math.PI * 2); ctx.fill();
+                document.getElementById('pocus-finding').innerText = "POCUS: Anechoic free fluid in Morrison's Pouch (Ascites).";
+            } else if (aaaActive) {
+                ctx.strokeStyle = '#ef4444'; ctx.lineWidth = 3.5; ctx.beginPath(); ctx.arc(130, 80, 42, 0, Math.PI * 2); ctx.stroke();
+                document.getElementById('pocus-finding').innerText = "POCUS: Abdominal Aortic Aneurysm > 4.5 cm diameter.";
+            } else {
+                document.getElementById('pocus-finding').innerText = "POCUS: Normal tissue echogenicity. No free fluid.";
+            }
+        }
+
+        function applyFACSAndPhysiology(intensity) {
+            eyebrowLeft.rotation.z = 0.45 * intensity; eyebrowRight.rotation.z = -0.45 * intensity;
+            leftEyeMesh.scale.y = Math.max(0.2, 1.0 - 0.7 * intensity); rightEyeMesh.scale.y = Math.max(0.2, 1.0 - 0.7 * intensity);
+            mouthMesh.scale.set(1.0 + 0.4 * intensity, 0.4 + 1.3 * intensity, 1.0);
+
+            document.getElementById('facs-au4').innerText = `${Math.round(intensity * 100)}%`;
+            document.getElementById('facs-au6').innerText = `${Math.round(Math.max(0, intensity - 0.2) * 125)}%`;
+
+            isBreathing = intensity < 0.5;
+
+            setTimeout(() => {
+                eyebrowLeft.rotation.z = 0; eyebrowRight.rotation.z = 0;
+                leftEyeMesh.scale.y = 1.0; rightEyeMesh.scale.y = 1.0;
+                mouthMesh.scale.set(1.0, 1.0, 1.0);
+                isBreathing = true;
+            }, 1500);
+        }
+
+        function askPatient(topic) {
+            osceTracker.consent = true;
+            const text = patientScripts[currentCasePreset][topic];
+            document.getElementById('patient-dialogue-text').innerText = `"${text}"`;
+            if (voiceAudioEnabled && 'speechSynthesis' in window) {
+                window.speechSynthesis.cancel();
+                window.speechSynthesis.speak(new SpeechSynthesisUtterance(text));
+            }
+        }
+
+        function applyPreset(preset) {
+            currentCasePreset = preset;
+            document.getElementById('status-badge').innerText = preset.toUpperCase();
+            updateMorphs();
+            askPatient('chief_complaint');
+        }
+
+        function setToolMode(mode) {
+            currentTool = mode;
+            ['history', 'inspect', 'auscultate', 'palpate', 'percuss', 'pocus'].forEach(m => {
+                const btn = document.getElementById(`tool-${m}`);
+                if (btn) btn.className = m === mode ? 'segmented-item active px-3.5 py-1.5 text-xs font-semibold flex items-center gap-1.5' : 'segmented-item px-3.5 py-1.5 text-xs font-semibold text-slate-300 hover:text-white flex items-center gap-1.5';
+            });
+
+            document.getElementById('panel-consult').classList.toggle('hidden', mode !== 'history');
+            document.getElementById('panel-morphs').classList.toggle('hidden', mode === 'history');
+            document.getElementById('pocus-viewport').classList.toggle('hidden', mode !== 'pocus');
+
+            if (mode === 'inspect') osceTracker.inspected = true;
+            if (mode === 'auscultate') osceTracker.auscultatedFirst = true;
+            if (mode === 'percuss') osceTracker.percussed = true;
+        }
+
+        function updateMorphs() {
+            const distensionVal = parseFloat(document.getElementById('slider-distension').value) / 100;
+            const posAttr = torsoGeo.attributes.position;
+            for (let i = 0; i < posAttr.count; i++) {
+                const x = baseTorsoPositions[i * 3], y = baseTorsoPositions[i * 3 + 1], z = baseTorsoPositions[i * 3 + 2];
+                if (z >= -0.35 && z <= 0.15 && y > 0) {
+                    const normDist = 1.0 - Math.sqrt(x * x * 4.0 + z * z * 4.0);
+                    if (normDist > 0) posAttr.setY(i, y + Math.sin(normDist * Math.PI * 0.5) * 0.28 * distensionVal);
+                }
+            }
+            posAttr.needsUpdate = true;
+            torsoGeo.computeVertexNormals();
+        }
+
+        function setupEventListeners() {
+            window.addEventListener('resize', () => {
+                camera.aspect = window.innerWidth / window.innerHeight;
+                camera.updateProjectionMatrix();
+                renderer.setSize(window.innerWidth, window.innerHeight);
+            });
+
+            window.addEventListener('pointermove', (e) => {
+                mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
+                mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
+
+                raycaster.setFromCamera(mouse, camera);
+                const intersects = raycaster.intersectObject(torsoMesh);
+
+                if (intersects.length > 0) {
+                    const point = intersects[0].point;
+                    cursorMarker.position.copy(point);
+                    cursorMarker.position.y += 0.02;
+                    cursorMarker.visible = true;
+
+                    if (currentTool === 'auscultate') {
+                        stethoscopeMesh.visible = true;
+                        stethoscopeMesh.position.copy(point);
+                        stethoscopeMesh.position.y += 0.03;
+                    } else if (currentTool === 'pocus') {
+                        pocusProbeMesh.visible = true;
+                        pocusProbeMesh.position.copy(point);
+                        pocusProbeMesh.position.y += 0.05;
+                    } else {
+                        stethoscopeMesh.visible = false;
+                        pocusProbeMesh.visible = false;
+                    }
+                } else {
+                    cursorMarker.visible = false;
+                    stethoscopeMesh.visible = false;
+                    pocusProbeMesh.visible = false;
+                }
+            });
+
+            window.addEventListener('click', (e) => {
+                if (e.clientX < 380 || e.clientX > window.innerWidth - 340 || e.clientY < 90) return;
+                
+                raycaster.setFromCamera(mouse, camera);
+                const intersects = raycaster.intersectObject(torsoMesh);
+
+                if (intersects.length > 0) {
+                    const hitPoint = intersects[0].point;
+
+                    if (currentTool === 'auscultate') {
+                        playBowelSound();
+                    } else if (currentTool === 'percuss') {
+                        const isLiverArea = hitPoint.x < -0.1 && hitPoint.z > 0.05;
+                        playPercussionSound(!isLiverArea);
+                    } else if (currentTool === 'palpate') {
+                        if (palpationDepth <= 2) osceTracker.lightPalpation = true;
+                        else osceTracker.deepPalpation = true;
+
+                        const painIntensity = palpationDepth >= 3 ? 0.9 : 0.6;
+                        applyFACSAndPhysiology(painIntensity);
+                        document.getElementById('grimace-level').innerText = `${Math.round(painIntensity * 100)}% (Severe Pain)`;
+                        document.getElementById('pain-bar').style.width = `${painIntensity * 100}%`;
+                        setTimeout(() => {
+                            document.getElementById('grimace-level').innerText = '0% (Calm)';
+                            document.getElementById('pain-bar').style.width = '0%';
+                        }, 1500);
+                    }
+                }
+            });
+        }
+
+        function toggleSpatialVR() {
+            const overlay = document.getElementById('vr-overlay');
+            overlay.classList.toggle('hidden');
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+
+            orbitControls.update();
+
+            // Breathing Motion
+            if (torsoMesh && isBreathing) {
+                const bTime = Date.now() * 0.002;
+                torsoMesh.position.y = 0.19 + Math.sin(bTime) * 0.007;
+            }
+
+            // AAA Epigastric Pulsation Engine
+            if (aaaActive && torsoMesh) {
+                const pulseTime = Date.now() * 0.007;
+                torsoMesh.scale.x = 1.0 + Math.sin(pulseTime) * 0.035;
+            }
+
+            if (currentTool === 'pocus') renderPOCUSScan();
+
+            renderer.render(scene, camera);
+        }
+    </script>
+</body>
+</html>
